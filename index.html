@@ -55,7 +55,18 @@ ul{padding-left:18px;margin:4px 0}li{margin:2px 0}
 #modal{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:9}
 #modal .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;max-width:640px;max-height:85vh;overflow:auto;padding:18px 22px}
 .sens td{text-align:center;font-family:var(--mono)}
-@media (max-width:1100px){#app{grid-template-columns:1fr;height:auto}aside,#right{border:0}#stage{height:62vh}#right{height:auto}.tabc{max-height:none}}
+.mobtog{display:none;width:100%;margin-bottom:8px}
+@media (max-width:1100px){
+ header{flex-wrap:nowrap;overflow-x:auto;padding:6px 8px;gap:6px;-webkit-overflow-scrolling:touch}
+ header h1{font-size:13px;white-space:nowrap}header .sub,header .sp{display:none}
+ #app{display:flex;flex-direction:column;height:auto}
+ #stage{order:1;height:68vh;height:68svh}#controls{order:2}#right{order:3;height:auto}
+ aside,#right{border:0}.tabc{max-height:none;overflow-x:auto}
+ .mobtog{display:block}aside:not(.open) .grp{display:none}
+ #hud{right:10px}#hud .btn{padding:4px 8px;font-size:12px}
+ #warn{top:auto;bottom:34px;left:10px;right:10px;max-width:none}
+ .cards{grid-template-columns:1fr 1fr}.fgrid{grid-template-columns:1fr 1fr}
+}
 </style>
 </head>
 <body>
@@ -572,7 +583,7 @@ const CTL = [
     ['fin', 'parkPrem', 'Park-facing premium', 0, 10, 1, '%']]]
 ];
 function buildControls() {
-  const el = document.getElementById('controls'); let h = '';
+  const el = document.getElementById('controls'); let h = `<button class="btn mobtog" onclick="document.getElementById('controls').classList.toggle('open')">⚙ Layout, gate & market controls ▾</button>`;
   for (const [g, list] of CTL) {
     h += `<div class="grp"><h3>${g}</h3>`;
     for (const [o, k, lab, mn, mx, st, u] of list) {
@@ -741,7 +752,7 @@ function resize() { const r = cv.parentElement.getBoundingClientRect(); DPR = Ma
 function setMode(m) { view.mode = m; if (m === '3d' && view.pitch > 85) view.pitch = 38; draw(); }
 function tog(k) { view[k] = !view[k]; draw(); }
 function fitView() {
-  const W = cv.width / DPR, H = cv.height / DPR; view.sc = Math.min(W / 150, H / 130); view.ox = W / 2 - 45 * view.sc; view.oy = H / 2 + 55 * view.sc;
+  const W = cv.width / DPR, H = cv.height / DPR; view.sc = Math.min(W / (W < 600 ? 120 : 150), H / 130); view.ox = W / 2 - 45 * view.sc; view.oy = H / 2 + 55 * view.sc;
   view.yaw = -35; view.pitch = 38; view.dist = 190; view.tgt = [45, 55, 0];
 }
 function gatePOV() {
@@ -750,7 +761,7 @@ function gatePOV() {
   view.yaw = Math.atan2(-n[0], -n[1]) * 180 / Math.PI; view.pitch = 12; view.dist = 55; draw();
 }
 function hud() {
-  document.getElementById('hud2').textContent = view.mode === '3d' ? 'Drag: orbit · Shift/right-drag: pan · Scroll: zoom' : 'Drag: pan · Scroll: zoom · Hover: plot details · North is up';
+  const T = matchMedia('(pointer:coarse)').matches; document.getElementById('hud2').textContent = view.mode === '3d' ? (T ? '1 finger: orbit · 2 fingers: pinch zoom / pan' : 'Drag: orbit · Shift/right-drag: pan · Scroll: zoom') : (T ? '1 finger: pan · pinch: zoom · tap a plot for details' : 'Drag: pan · Scroll: zoom · Hover: plot details · North is up');
   ['b3d', 'b2d'].forEach(id => document.getElementById(id).classList.toggle('on', (id === 'b3d') === (view.mode === '3d')));
   [['bsat', 'sat'], ['bhomes', 'homes'], ['bch', 'ch'], ['bctx', 'ctx']].forEach(([id, k]) => document.getElementById(id).classList.toggle('on', view[k]));
 }
@@ -929,22 +940,39 @@ function draw() {
 // ---------- interaction
 let drag = null; const pts = new Map();
 cv.addEventListener('contextmenu', e => e.preventDefault());
-cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); drag = { x: e.clientX, y: e.clientY, pan: e.shiftKey || e.button === 2, moved: false }; });
-cv.addEventListener('pointerup', e => { pts.delete(e.pointerId); if (drag && !drag.moved && view.mode === '2d') { const h = hit(e); view.sel = h ? h.id : null; if (tab === 'plots') renderTab(); draw(); } drag = null; });
+cv.addEventListener('pointerdown', e => { try { cv.setPointerCapture(e.pointerId); } catch (_) { } pts.set(e.pointerId, [e.clientX, e.clientY]); drag = { x: e.clientX, y: e.clientY, pan: e.shiftKey || e.button === 2, moved: false }; });
+cv.addEventListener('pointerup', e => { pts.delete(e.pointerId); if (drag && !drag.moved && view.mode === '2d') { const h = hit(e); view.sel = h ? h.id : null; showTip(e, h); if (tab === 'plots') renderTab(); draw(); } drag = null; });
+cv.addEventListener('pointercancel', e => { pts.delete(e.pointerId); drag = null; });
 cv.addEventListener('pointermove', e => {
-  if (pts.size === 2 && pts.has(e.pointerId)) { const [a, b] = [...pts.values()]; const d0 = Math.hypot(a[0] - b[0], a[1] - b[1]); pts.set(e.pointerId, [e.clientX, e.clientY]); const [c, d] = [...pts.values()]; const d1 = Math.hypot(c[0] - d[0], c[1] - d[1]); zoom(d0 / d1, (c[0] + d[0]) / 2, (c[1] + d[1]) / 2); return; }
+  if (pts.size === 2 && pts.has(e.pointerId)) {
+    const [a, b] = [...pts.values()]; const d0 = Math.hypot(a[0] - b[0], a[1] - b[1]), m0 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    pts.set(e.pointerId, [e.clientX, e.clientY]); const [c, d] = [...pts.values()]; const d1 = Math.hypot(c[0] - d[0], c[1] - d[1]), m1 = [(c[0] + d[0]) / 2, (c[1] + d[1]) / 2];
+    const r = cv.getBoundingClientRect(); if (drag) drag.moved = true;
+    zoom(d0 / d1, m1[0] - r.left, m1[1] - r.top); panBy(m1[0] - m0[0], m1[1] - m0[1]); draw(); return; }
+  if (pts.has(e.pointerId)) pts.set(e.pointerId, [e.clientX, e.clientY]);
+  if (pts.size > 1) return;
   if (drag) {
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true; drag.x = e.clientX; drag.y = e.clientY;
-    if (view.mode === '2d') { view.ox += dx; view.oy += dy; }
-    else if (drag.pan) { const C = cam(), k = view.dist / C.foc * 1.4, fl = Math.hypot(C.f[0], C.f[1]) || 1, fg = [C.f[0] / fl, C.f[1] / fl]; view.tgt[0] += -C.r[0] * dx * k + fg[0] * dy * k; view.tgt[1] += -C.r[1] * dx * k + fg[1] * dy * k; }
+    if (view.mode === '2d' || drag.pan) panBy(dx, dy);
     else { view.yaw += dx * 0.4; view.pitch = Math.max(5, Math.min(89, view.pitch + dy * 0.3)); }
     draw(); return;
   }
-  if (view.mode === '2d') { const h = hit(e), id = h ? h.id : null; const tip = document.getElementById('tip'); if (id !== view.hover) { view.hover = id; draw(); } if (h) { const r = cv.getBoundingClientRect(); tip.style.display = 'block'; tip.style.left = (e.clientX - r.left + 14) + 'px'; tip.style.top = (e.clientY - r.top + 10) + 'px'; tip.innerHTML = `<b>${h.id}</b> · ${h.type}<br>${f1(h.area)} m² · ${f0(h.sqft)} sqft<br>front ${f1(h.frontageM || 0)} m · depth ${f1(h.depthM || 0)} m${h.type !== 'utility' ? '<br>' + lk(price(h)) : ''}`; } else tip.style.display = 'none'; }
+  if (view.mode === '2d' && e.pointerType === 'mouse') { const h = hit(e), id = h ? h.id : null; if (id !== view.hover) { view.hover = id; draw(); } showTip(e, h); }
 });
-cv.addEventListener('pointerleave', () => { document.getElementById('tip').style.display = 'none'; view.hover = null; draw(); });
+cv.addEventListener('pointerleave', e => { if (e.pointerType !== 'mouse') return; document.getElementById('tip').style.display = 'none'; view.hover = null; draw(); });
 cv.addEventListener('wheel', e => { e.preventDefault(); zoom(e.deltaY > 0 ? 1.12 : 1 / 1.12, e.offsetX, e.offsetY); }, { passive: false });
+function panBy(dx, dy) {
+  if (view.mode === '2d') { view.ox += dx; view.oy += dy; return; }
+  const C = cam(), k = view.dist / C.foc * 1.4, fl = Math.hypot(C.f[0], C.f[1]) || 1, fg = [C.f[0] / fl, C.f[1] / fl];
+  view.tgt[0] += -C.r[0] * dx * k + fg[0] * dy * k; view.tgt[1] += -C.r[1] * dx * k + fg[1] * dy * k;
+}
 function zoom(k, x, y) { if (view.mode === '2d') { const p = S2(x, y); view.sc = Math.max(0.8, Math.min(30, view.sc / k)); view.ox = x - p[0] * view.sc; view.oy = y + p[1] * view.sc; } else view.dist = Math.max(15, Math.min(600, view.dist * k)); draw(); }
+function showTip(e, h) {
+  const tip = document.getElementById('tip'); if (!h) { tip.style.display = 'none'; return; }
+  const r = cv.getBoundingClientRect(); tip.style.display = 'block';
+  tip.style.left = Math.min(e.clientX - r.left + 14, r.width - 170) + 'px'; tip.style.top = Math.max(4, e.clientY - r.top - 80) + 'px';
+  tip.innerHTML = `<b>${h.id}</b> · ${h.type}<br>${f1(h.area)} m² · ${f0(h.sqft)} sqft<br>front ${f1(h.frontageM || 0)} m · depth ${f1(h.depthM || 0)} m${h.type !== 'utility' ? '<br>' + lk(price(h)) : ''}`;
+}
 function hit(e) { const r = cv.getBoundingClientRect(), p = S2(e.clientX - r.left, e.clientY - r.top); return L.plots.find(q => inPoly(p, q.poly)); }
 window.addEventListener('resize', resize);
 
